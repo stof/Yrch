@@ -7,6 +7,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Output\Output;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Input\StringInput;
 use Doctrine\DBAL\DriverManager;
@@ -26,17 +27,37 @@ class MigrateCommand extends Command
      * @var Doctrine\DBAL\Connection
      */
     protected $conn;
+
     /**
      * @var Doctrine\ORM\EntityManager
      */
     protected $em;
-    protected $users = array ();
-    protected $sites = array ();
-    protected $categories = array ();
+
     /*
      * @var Symfony\Component\Console\Output\OutputInterface
      */
     protected $output;
+
+    /**
+     * This array contains key/value couples as <old user_id> => User
+     *
+     * @var array
+     */
+    protected $users = array ();
+
+    /**
+     * This array contains key/value couples as <old site_id> => Site
+     *
+     * @var array
+     */
+    protected $sites = array ();
+
+    /**
+     * This array contains key/value couples as <old cat_id> => Category
+     *
+     * @var array
+     */
+    protected $categories = array ();
 
     /**
      * @see Command
@@ -83,19 +104,53 @@ EOT
         // Remove the Timestampable listener to migrate creation and update dates
         $this->em = $this->container->get('doctrine.orm.entity_manager');
         DoctrineExtensionsBundle::removeTimestampableListener($this->em);
-        $this->output->writeln('connected');
+        $groupRepo = $this->container->get('doctrine_user.repository.group');
+        // Migrating admin
+        $this->output->writeln('Migrating admin users');
+        $adminGroup = $groupRepo->findOneByName('Admin');
         $query = $this->conn->executeQuery(
-                'SELECT pu.USER_ID as
+                'SELECT pu.USER_ID
                     FROM YRCH_PROFILUSER pu
-                    ON pu.USER_ID=u.USER_ID
                     INNER JOIN YRCH_PROFIL p
                     ON p.PROFIL_ID=pu.PROFIL_ID
                     WHERE p.PROFIL_ALIAS="admin"'
                 );
-        $users = $query->fetchAll();
-        foreach ($users as $id_user) {
+        $admins = $query->fetchAll();
+        foreach ($admins as $old_user) {
+            $id_user = $old_user['USER_ID'];
             $this->migrateUser($id_user);
+            $this->users[$id_user]->addGroup($adminGroup);
         }
+        // Migrating moderators
+        $this->output->writeln('Migrating moderator users');
+        $moderatorGroup = $groupRepo->findOneByName('moderator');
+        $query = $this->conn->executeQuery(
+                'SELECT u.USER_ID
+                    FROM YRCH_USER u
+                    WHERE EXISTS (
+                        SELECT pu.USER_ID
+                        FROM YRCH_PROFILUSER pu
+                        INNER JOIN YRCH_PROFIL p
+                        ON p.PROFIL_ID = pu.PROFIL_ID
+                        WHERE pu.USER_ID = u.USER_ID
+                        AND p.PROFIL_ALIAS = "moderator"
+                    )
+                    AND NOT EXISTS (
+                        SELECT pu.USER_ID
+                        FROM YRCH_PROFILUSER pu
+                        INNER JOIN YRCH_PROFIL p
+                        ON p.PROFIL_ID = pu.PROFIL_ID
+                        WHERE pu.USER_ID = u.USER_ID
+                        AND p.PROFIL_ALIAS = "admin"
+                    )'
+                );
+        $moderators = $query->fetchAll();
+        foreach ($moderators as $old_user) {
+            $id_user = $old_user['USER_ID'];
+            $this->migrateUser($id_user);
+            $this->users[$id_user]->addGroup($moderatorGroup);
+        }
+        $this->em->flush();
     }
 
     protected function migrateUser($id_user)
@@ -107,5 +162,51 @@ EOT
         $user = new User();
         $user->setUsername($old_user['USER_NAME']);
         $user->setNick($old_user['USER_NICK']);
+        $user->setEmail($old_user['USER_EMAIL']);
+        $user->setPassword($old_user['USER_PASS']);
+        switch ($old_user['USER_STATUS']) {
+            case 'pending':
+                $user->setIsActive(false);
+                $user->unlock();
+                break;
+            case 'ok':
+                $user->setIsActive(true);
+                $user->unlock();
+            default:
+                // dead or locked
+                $user->setIsActive(true);
+                $user->lock();
+                break;
+        }
+        $old_configs = $this->conn->fetchAssoc('SELECT * FROM YRCH_USERCONF WHERE USER_ID=?', array($id_user));
+        $old_config = array();
+        foreach ($old_config as $row) {
+            $old_config[$row['USERCONF_KEY']] = $row['USERCONF_VALUE'];
+        }
+        $default_config = array(
+            'DEF_COUNTPERPAGE' => 25,
+            'DEF_LANG' => 'fr',
+            'DEF_LINKOUT' => '_blank',
+            'DEF_MAILDIRECT' => 1,
+            'DEF_REVIEWWARN' => 1,
+            'DEF_SITEWARN' => 1,
+            'DEF_THEME' => 'yrch');
+        $config = array_merge($default_config, $old_config);
+        if ($config['DEF_THEME'] == 'yrch'){
+            $config['DEF_THEME'] = 'default';
+        }
+        $user->setSiteNotifications((bool) $config['DEF_SITEWARN']);
+        $user->setReviewNotifications((bool) $config['DEF_REVIEWWARN']);
+        $user->setTheme($config['DEF_THEME']);
+        $user->setPreferedLocale($config['DEF_LANG']);
+        $user->setSitesPerPage($config['DEF_COUNTPERPAGE']);
+        $user->setReviewsPerPage($config['DEF_COUNTPERPAGE']);
+        $user->setOutlink($config['DEF_LINKOUT']);
+        $user->setContactAllowed((bool) $config['DEF_MAILDIRECT']);
+        $this->em->persist($user);
+        $this->users[$id_user] = $user;
+        if ($this->output->getVerbosity() == Output::VERBOSITY_VERBOSE){
+            $this->output->writeln(sprintf('Migrating <comment>%s</comment> user',$user->getNick()));
+        }
     }
 }
