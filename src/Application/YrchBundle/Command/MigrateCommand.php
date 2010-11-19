@@ -150,6 +150,17 @@ EOT
             $this->migrateUser($id_user);
             $this->users[$id_user]->addGroup($moderatorGroup);
         }
+        // Migrating categories
+        $this->output->writeln('Migrating categories');
+        $query = $this->conn->executeQuery(
+                'SELECT c.CAT_ID
+                    FROM YRCH_CAT c'
+                );
+        $categories = $query->fetchAll();
+        foreach ($categories as $old_category) {
+            $id_category = $old_category['CAT_ID'];
+            //$this->migrateCategory($id_category);// This does not work because of a problem on DEB
+        }
         $this->em->flush();
     }
 
@@ -265,6 +276,34 @@ EOT
         $this->sites[$id_site] = $site;
         if ($this->output->getVerbosity() == Output::VERBOSITY_VERBOSE){
             $this->output->writeln(sprintf('Migrating <comment>%s</comment> site',$site->getName()));
+        }
+    }
+
+    public function migrateCategory($id_category)
+    {
+        if (isset ($this->categories[$id_category])){
+            return;
+        }
+        $old_category = $this->conn->fetchAssoc('SELECT * FROM YRCH_CAT WHERE CAT_ID=?', array($id_category));
+        $category = new Category();
+        $parent = $this->conn->fetchAssoc('SELECT * FROM YRCH_CATCAT WHERE CAT_CHILD=? AND LNK_MASTER=? LIMIT 1', array($id_category, 1));
+        if ($parent['CAT_ID']){
+            $this->migrateCategory($parent['CAT_ID']);
+            $category->setParent($this->categories[$parent['CAT_ID']]);
+        }
+        $description = unserialize($old_category['CAT_DESC']);
+        $old_titles = $this->conn->fetchAssoc('SELECT * FROM YRCH_CATLANG WHERE CAT_ID=?', array($id_category));
+        foreach ($old_titles as $row) {
+            $locale = $row['LANG_CODE'];
+            $category->setTranslatableLocale($locale);
+            $category->setName($row['CAT_TITLE']);
+            $category->setDescription($description[$locale]);
+            $this->em->persist($category);
+            $this->em->flush();
+        }
+        $this->categories[$id_category] = $category;
+        if ($this->output->getVerbosity() == Output::VERBOSITY_VERBOSE){
+            $this->output->writeln(sprintf('Migrating <comment>%s</comment> category',$category->getName()));
         }
     }
 }
