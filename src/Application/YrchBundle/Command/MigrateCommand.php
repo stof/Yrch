@@ -209,4 +209,62 @@ EOT
             $this->output->writeln(sprintf('Migrating <comment>%s</comment> user',$user->getNick()));
         }
     }
+
+    public function migrateSite($id_site)
+    {
+        if (isset ($this->sites[$id_site])){
+            return;
+        }
+        $old_site = $this->conn->fetchAssoc('SELECT * FROM YRCH_SITE WHERE SITE_ID=?', array($id_site));
+        $this->migrateUser($old_site['USER_ID']);
+        $site = new Site();
+        $site->setUrl($old_site['SITE_URL']);
+        $site->setName($old_site['SITE_TITLE']);
+        $site->setSuperOwner($this->users[$old_site['USER_ID']]);
+        $site->setLeech((bool) $old_site['SITE_LEECH']);
+        $site->setCreatedAt(new \DateTime($old_site['SITE_ADDED']));
+        $site->setUpdatedAt(new \DateTime($old_site['SITE_UPDATED']));
+        $site->setNotes($old_site['SITE_BLOCNOTE']);
+        $site->setStatus($old_site['SITE_STATUS']);
+        $old_languages = $this->conn->executeQuery(
+                'SELECT l.LANG_CODE AS code
+                    FROM YRCH_LANG l
+                    INNER JOIN YRCH_SITELANG sl
+                    ON sl.LANG_ID=l.LANG_ID
+                    WHERE sl.SITE_ID=?',
+                array($id_site))
+                ->fetchAll();
+        $languages = array();
+        foreach ($old_languages as $row){
+            $languages[] = $row['code'];
+        }
+        $site->setLanguages($languages);
+        $old_countries = $this->conn->executeQuery(
+                'SELECT c.COUNTRY_CODE AS code
+                    FROM YRCH_COUNTRY c
+                    INNER JOIN YRCH_SITECOUNTRY sc
+                    ON sc.COUNTRY_ID=c.COUNTRY_ID
+                    WHERE sc.SITE_ID=?',
+                array($id_site))
+                ->fetchAll();
+        $countries = array();
+        foreach ($old_countries as $row){
+            $countries[] = $row['code'];
+        }
+        $site->setCountries($countries);
+        if ($old_site['SITE_SELECTION']){
+            $site->addToSelection();
+        }
+        $description = unserialize($old_site['SITE_DESC']);
+        foreach ($description as $locale => $desc){
+            $site->setTranslatableLocale($locale);
+            $site->setDescription($desc);
+            $this->em->persist($site);
+            $this->em->flush();
+        }
+        $this->users[$id_site] = $site;
+        if ($this->output->getVerbosity() == Output::VERBOSITY_VERBOSE){
+            $this->output->writeln(sprintf('Migrating <comment>%s</comment> site',$site->getName()));
+        }
+    }
 }
