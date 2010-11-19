@@ -262,7 +262,7 @@ EOT
             $this->em->persist($site);
             $this->em->flush();
         }
-        $this->users[$id_site] = $site;
+        $this->sites[$id_site] = $site;
         if ($this->output->getVerbosity() == Output::VERBOSITY_VERBOSE){
             $this->output->writeln(sprintf('Migrating <comment>%s</comment> site',$site->getName()));
         }
