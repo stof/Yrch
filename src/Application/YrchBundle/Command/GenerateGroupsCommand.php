@@ -70,6 +70,7 @@ EOT
             $permission->setName($name);
             $permission->setDescription($description);
             $permissionRepo->getObjectManager()->persist($permission);
+            $permissionRepo->getObjectManager()->flush();
             $output->writeln(sprintf('Created permission <comment>%s</comment>', $permission->getName()));
         }
         return $permission;
