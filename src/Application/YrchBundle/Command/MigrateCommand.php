@@ -101,6 +101,7 @@ EOT
         );
         $this->conn = DriverManager::getConnection($dbal_config);
         $this->conn->connect(); // an exception is raised if the connection fails
+        $this->conn->executeQuery('SET NAMES UTF8');
         // Remove the Timestampable listener to migrate creation and update dates
         $this->em = $this->container->get('doctrine.orm.entity_manager');
         DoctrineExtensionsBundle::removeTimestampableListener($this->em);
@@ -159,7 +160,18 @@ EOT
         $categories = $query->fetchAll();
         foreach ($categories as $old_category) {
             $id_category = $old_category['CAT_ID'];
-            $this->migrateCategory($id_category);// This does not work because of a problem on DEB
+            $this->migrateCategory($id_category);
+        }
+        // Migrating sites
+        $this->output->writeln('Migrating sites');
+        $query = $this->conn->executeQuery(
+                'SELECT s.SITE_ID
+                    FROM YRCH_SITE s'
+                );
+        $sites = $query->fetchAll();
+        foreach ($sites as $old_site) {
+            $id_site = $old_site['SITE_ID'];
+            $this->migrateSite($id_site);
         }
         $this->em->flush();
     }
@@ -237,6 +249,11 @@ EOT
         $site->setUpdatedAt(new \DateTime($old_site['SITE_UPDATED']));
         $site->setNotes($old_site['SITE_BLOCNOTE']);
         $site->setStatus($old_site['SITE_STATUS']);
+        $old_categories = $this->conn->fetchAll('SELECT * FROM YRCH_CATSITE WHERE SITE_ID=?', array($id_site));
+        foreach ($old_categories as $row) {
+            $this->migrateCategory($row['CAT_ID']); // Normally all categories are still migrated
+            $site->addCategory($this->categories[$row['CAT_ID']]);
+        }
         $old_languages = $this->conn->executeQuery(
                 'SELECT l.LANG_CODE AS code
                     FROM YRCH_LANG l
