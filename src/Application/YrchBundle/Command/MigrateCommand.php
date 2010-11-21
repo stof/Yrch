@@ -159,7 +159,7 @@ EOT
         $categories = $query->fetchAll();
         foreach ($categories as $old_category) {
             $id_category = $old_category['CAT_ID'];
-            //$this->migrateCategory($id_category);// This does not work because of a problem on DEB
+            $this->migrateCategory($id_category);// This does not work because of a problem on DEB
         }
         $this->em->flush();
     }
@@ -287,17 +287,19 @@ EOT
         $old_category = $this->conn->fetchAssoc('SELECT * FROM YRCH_CAT WHERE CAT_ID=?', array($id_category));
         $category = new Category();
         $parent = $this->conn->fetchAssoc('SELECT * FROM YRCH_CATCAT WHERE CAT_CHILD=? AND LNK_MASTER=? LIMIT 1', array($id_category, 1));
-        if ($parent['CAT_ID']){
+        if ($parent['CAT_ID'] != $id_category){
+            // The root node has no parent
             $this->migrateCategory($parent['CAT_ID']);
             $category->setParent($this->categories[$parent['CAT_ID']]);
         }
         $description = unserialize($old_category['CAT_DESC']);
-        $old_titles = $this->conn->fetchAssoc('SELECT * FROM YRCH_CATLANG WHERE CAT_ID=?', array($id_category));
+        $old_titles = $this->conn->fetchAll('SELECT * FROM YRCH_CATLANG WHERE CAT_ID=?', array($id_category));
         foreach ($old_titles as $row) {
             $locale = $row['LANG_CODE'];
+            $desc = ($description[$locale])?:'';
             $category->setTranslatableLocale($locale);
             $category->setName($row['CAT_TITLE']);
-            $category->setDescription($description[$locale]);
+            $category->setDescription($desc);
             $this->em->persist($category);
             $this->em->flush();
         }
