@@ -71,11 +71,12 @@ class MigrateCommand extends Command
                 new InputArgument('dbname', InputArgument::REQUIRED, 'The old database name'),
                 new InputArgument('user', InputArgument::REQUIRED, 'The username to use'),
                 new InputArgument('password', InputArgument::REQUIRED, 'The password to use'),
+                new InputArgument('special_user', InputArgument::REQUIRED, 'The username of the special_user in old database'),
             ))
             ->setHelp(<<<EOT
 The <info>yrch:migrate</info> command migrates the database from Yrch! 1.0:
 
-  <info>php app/console yrch:test dbname dbuser dbpassword</info>
+  <info>php app/console yrch:test dbname dbuser dbpassword special_user</info>
 
 EOT
         );
@@ -87,7 +88,7 @@ EOT
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->output = $output;
-        $string_input = new StringInput('yrch:generate:groups');
+        $string_input = new StringInput('yrch:populate');
         $application = new Application($this->application->getKernel());
         $application->setAutoExit(false);
         $application->run($string_input, $this->output);
@@ -106,6 +107,16 @@ EOT
         $this->em = $this->container->get('doctrine.orm.entity_manager');
         DoctrineExtensionsBundle::removeTimestampableListener($this->em);
         $groupRepo = $this->container->get('doctrine_user.repository.group');
+        // Special user
+        $old_special_user = $this->conn->fetchAssoc(
+                'SELECT USER_ID
+                    FROM YRCH_USER
+                    WHERE USER_NAME=?',
+                array ($input->getArgument('special_user'))
+                );
+        $userRepo = $this->container->get('doctrine_user.repository.user');
+        $specialUser = $userRepo->findOneByUsername($this->container->getParameter('yrch.special_user.username'));
+        $this->users[$old_special_user['USER_ID']] = $specialUser;
         // Migrating admin
         $this->output->writeln('Migrating admin users');
         $adminGroup = $groupRepo->findOneByName('Admin');
@@ -114,7 +125,9 @@ EOT
                     FROM YRCH_PROFILUSER pu
                     INNER JOIN YRCH_PROFIL p
                     ON p.PROFIL_ID=pu.PROFIL_ID
-                    WHERE p.PROFIL_ALIAS="admin"'
+                    WHERE p.PROFIL_ALIAS="admin"
+                    AND pu.USER_ID<>?',
+                array ($old_special_user['USER_ID'])
                 );
         $admins = $query->fetchAll();
         foreach ($admins as $old_user) {
