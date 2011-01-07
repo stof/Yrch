@@ -16,3 +16,13 @@ site_show:
   locales: { en: /en/site/:id, fr: /fr/site/:id }
   defaults: { _controller: YrchBundle:Site:show }
   requirements: { id: "\d+", _method: "GET" }
+
+site_new:
+  locales: { en: /en/site/new, fr: /fr/site/nouveau }
+  defaults: { _controller: YrchBundle:Site:new }
+  requirements: { _method: "GET" }
+
+site_create:
+  locales: { en: /en/site/new, fr: /fr/site/nouveau }
+  defaults: { _controller: YrchBundle:Site:create }
+  requirements: { _method: "POST" }

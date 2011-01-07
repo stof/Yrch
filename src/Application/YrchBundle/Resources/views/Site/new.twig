@@ -1,0 +1,19 @@
+{% extends 'YrchBundle::layout.twig' %}
+
+{% block title_content %}{% trans "New site" %}{% endblock %}
+
+{% block container %}
+    <div class="box">
+        <div class="box_head">
+            <h1>{% trans "New site" %}</h1>
+        </div>
+        <div class="last">
+            <form action="{{ path(yrch_route("site_create")) }}" method="post">
+                {{ form_field(form) }}
+                <div class="submit">
+                    <input type="submit" value="{% trans "Submit" %}" />
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

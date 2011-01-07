@@ -16,7 +16,7 @@ use Symfony\Component\Form\UrlField;
  */
 class SiteForm extends Form
 {
-    public function  configure()
+    public function configure()
     {
         $this->add(new TextField('name'));
         $this->add(new UrlField('url'));
